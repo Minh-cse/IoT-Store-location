@@ -7,16 +7,19 @@ import json
 from datetime import datetime, timezone, timedelta
 import counterfit_shims_serial
 import pynmea2
-import paho.mqtt.client as mqtt
+from azure.iot.device import IoTHubDeviceClient, Message
 
-# --- HiveMQ config ---
-HIVEMQ_HOST = "103ac9061a92450aad5099a849246ddd.s1.eu.hivemq.cloud"   
-HIVEMQ_PORT = 8883                        
-HIVEMQ_USERNAME = "IoT_GPS"
-HIVEMQ_PASSWORD = "1234567890Vgu"
-TOPIC = "gps/location"
+connection_string = 'string'
+
+serial = counterfit_shims_serial.Serial('/dev/ttyAMA0')
+
+device_client = IoTHubDeviceClient.create_from_connection_string(connection_string)
 
 GPS_TOLORANCE = 0.00009
+
+print('Connecting')
+device_client.connect()
+print('Connected')
 
 tz_vn = timezone(timedelta(hours=7))
 
@@ -40,30 +43,6 @@ def check_warehouse(lat, lon):
         if abs(lat - wh['latitude']) <= GPS_TOLORANCE and abs(lon - wh['longitude']) <= GPS_TOLORANCE:
             return wh
     return None
-
-# --- Callbacks ---
-def on_connect(client, userdata, flags, rc):
-    if rc == 0:
-        print("Connected to HiveMQ")
-    else:
-        print(f"Connection failed, code: {rc}")
-
-def on_publish(client, userdata, mid):
-    print(f"Message published (mid={mid})")
-
-# --- Setup MQTT client ---
-client = mqtt.Client(client_id="gps-tracker-01", protocol=mqtt.MQTTv311)
-client.username_pw_set(HIVEMQ_USERNAME, HIVEMQ_PASSWORD)
-
-# TLS
-client.tls_set()
-
-client.on_connect = on_connect
-client.on_publish = on_publish
-
-print("Connecting to HiveMQ...")
-client.connect(HIVEMQ_HOST, HIVEMQ_PORT, keepalive=60)
-client.loop_start()
 
 # --- Serial ---
 serial = counterfit_shims_serial.Serial('/dev/ttyAMA0')
@@ -99,7 +78,8 @@ def send_gps_data(line):
                 print(f"Currently at {matched['warehouse']} | Lat: {lat:.6f}, Lon: {lon:.6f} \nTimestamp: {timestamp}") 
             else:
                 print("Sending telemetry", payload)
-            client.publish(TOPIC, json.dumps(payload), qos=1)
+        message = Message(json.dumps(payload))
+        device_client.send_message(message)
     except pynmea2.ParseError:
         pass 
 
