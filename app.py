@@ -9,23 +9,27 @@ import counterfit_shims_serial
 import pynmea2
 from azure.iot.device import IoTHubDeviceClient, Message
 
-connection_string = 'string'
+# --- Each truck has its own port and connection string ---
+DEVICES = [
+    {
+        "id": "truck_01",
+        "port": "/dev/ttyAMA0",
+        "connection_string": "<connection_string_for_truck_01>"
+    },
+    {
+        "id": "truck_02",
+        "port": "/dev/ttyAMA1",
+        "connection_string": "<connection_string_for_truck_02>"
+    },
+]
 
-serial = counterfit_shims_serial.Serial('/dev/ttyAMA0')
-
-device_client = IoTHubDeviceClient.create_from_connection_string(connection_string)
-
-GPS_TOLORANCE = 0.00009
-
-print('Connecting')
-device_client.connect()
-print('Connected')
-
+GPS_TOLERANCE = 0.00009
 tz_vn = timezone(timedelta(hours=7))
 
+# --- Load warehouses ---
 def load_warehouse(filepath):
     warehouse = []
-    with open(filepath, newline = '', encoding = 'utf-8') as f:
+    with open(filepath, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
             warehouse.append({
@@ -38,17 +42,15 @@ def load_warehouse(filepath):
 
 warehouse = load_warehouse('warehouse.csv')
 
+# --- Check if GPS is near a warehouse ---
 def check_warehouse(lat, lon):
     for wh in warehouse:
-        if abs(lat - wh['latitude']) <= GPS_TOLORANCE and abs(lon - wh['longitude']) <= GPS_TOLORANCE:
+        if abs(lat - wh['latitude']) <= GPS_TOLERANCE and abs(lon - wh['longitude']) <= GPS_TOLERANCE:
             return wh
     return None
 
-# --- Serial ---
-serial = counterfit_shims_serial.Serial('/dev/ttyAMA0')
-
-# --- Send GPS ---
-def send_gps_data(line):
+# --- Send GPS data to Azure ---
+def send_gps_data(line, device_client, device_id):
     try:
         msg = pynmea2.parse(line)
         if msg.sentence_type == 'GGA':
@@ -58,35 +60,49 @@ def send_gps_data(line):
                 lat *= -1
             if msg.lon_dir == 'W':
                 lon *= -1
-            
+
             timestamp = datetime.now(tz_vn).strftime("%d/%m/%Y %H:%M:%S") + " UTC+7"
 
             payload = {
+                "device_id": device_id,
                 "timestamp": timestamp,
                 "gps": {
-                    "lat": lat, 
-                    "lon": lon}
+                    "lat": lat,
+                    "lon": lon
+                }
             }
-            matched = check_warehouse(lat, lon)
 
+            matched = check_warehouse(lat, lon)
             if matched:
                 payload["warehouse"] = {
                     "warehouse": matched["warehouse"],
                     "lat": matched["latitude"],
                     "lon": matched["longitude"],
                 }
-                print(f"Currently at {matched['warehouse']} | Lat: {lat:.6f}, Lon: {lon:.6f} \nTimestamp: {timestamp}") 
+                print(f"[{device_id}] At {matched['warehouse']} | Lat: {lat:.6f}, Lon: {lon:.6f} | {timestamp}")
             else:
-                print("Sending telemetry", payload)
-        message = Message(json.dumps(payload))
-        device_client.send_message(message)
+                print(f"[{device_id}] Sending telemetry | Lat: {lat:.6f}, Lon: {lon:.6f} | {timestamp}")
+
+            message = Message(json.dumps(payload))
+            device_client.send_message(message)
     except pynmea2.ParseError:
-        pass 
+        pass
+
+# --- Connect all devices ---
+print("Connecting devices...")
+for device in DEVICES:
+    device["serial"] = counterfit_shims_serial.Serial(device["port"])
+    device["client"] = IoTHubDeviceClient.create_from_connection_string(device["connection_string"])
+    device["client"].connect()
+    print(f"Connected: {device['id']} on {device['port']}")
+
+print("All devices connected!")
 
 # --- Main loop ---
 while True:
-    line = serial.readline().decode('utf-8')
-    while len(line) > 0:
-        send_gps_data(line)
-        line = serial.readline().decode('utf-8')
-    time.sleep(10)
+    for device in DEVICES:
+        line = device["serial"].readline().decode('utf-8')
+        while len(line) > 0:
+            send_gps_data(line, device["client"], device["id"])
+            line = device["serial"].readline().decode('utf-8')
+    time.sleep(60)
