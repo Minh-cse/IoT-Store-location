@@ -42,7 +42,7 @@ source .venv/bin/activate
 ### 4. Install dependencies
 
 ```bash
-pip install -r requirements.txt
+pip install -r "requirements.txt"
 ```
 
 ## Run counterfit
@@ -72,7 +72,7 @@ python app.py
 ```
 
 ---
-
+*NOTE: counterfit and demo.py run simutanously using 2 terminal
 ## Deactivating the virtual environment
 
 When you are done, deactivate the virtual environment with:
