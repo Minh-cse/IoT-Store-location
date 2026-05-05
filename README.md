@@ -24,7 +24,7 @@ py -3.9 --version
 
 Then create the virtual environment:
 ```bash
-py -3.9 -m .venv venv
+py -3.9 -m venv .venv
 ```
 
 ### 3. Activate the virtual environment
