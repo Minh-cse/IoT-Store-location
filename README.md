@@ -42,7 +42,7 @@ source .venv/bin/activate
 ### 4. Install dependencies
 
 ```bash
-pip install -r "requirements.txt"
+pip install -r "requirement.txt"
 ```
 
 ## Run counterfit
