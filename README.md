@@ -31,12 +31,12 @@ py -3.9 -m venv .venv
 
 **Windows:**
 ```bash
-venv\Scripts\activate
+.venv\Scripts\activate
 ```
 
 **macOS / Linux:**
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 ```
 
 ### 4. Install dependencies
