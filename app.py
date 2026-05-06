@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timezone, timedelta
 import counterfit_shims_serial
 import pynmea2
-from azure.iot.device import IoTHubDeviceClient, Message
+from azure.iot.device import IoTHubDeviceClient, Message, MethodResponse  # ← thêm MethodResponse
 
 # --- Each truck has its own port and connection string ---
 DEVICES = [
@@ -25,19 +25,6 @@ DEVICES = [
 
 GPS_TOLERANCE = 0.00009
 tz_vn = timezone(timedelta(hours=7))
-
-def method_handler(method_request):
-    print(f'Direct method received: {method_request.name}')
-    
-    if method_request.name == 'arrived':
-        print('Truck arrived!')
-    elif method_request.name == 'in_transit':
-        print('Truck is in transit')
-    
-    response = MethodResponse.create_from_method_request(method_request, status=200)
-    device_client.send_method_response(response)
-
-device_client.on_method_request_received = method_handler
 
 # --- Load warehouses ---
 def load_warehouse(filepath):
@@ -61,6 +48,18 @@ def check_warehouse(lat, lon):
         if abs(lat - wh['latitude']) <= GPS_TOLERANCE and abs(lon - wh['longitude']) <= GPS_TOLERANCE:
             return wh
     return None
+
+# --- Method handler factory --- 
+def make_method_handler(client, device_id):
+    def method_handler(method_request):
+        print(f'[{device_id}] Direct method received: {method_request.name}')
+        if method_request.name == 'arrived':
+            print(f'[{device_id}] Truck arrived!')
+        elif method_request.name == 'in_transit':
+            print(f'[{device_id}] Truck is in transit')
+        response = MethodResponse.create_from_method_request(method_request, status=200)
+        client.send_method_response(response)
+    return method_handler
 
 # --- Send GPS data to Azure ---
 def send_gps_data(line, device_client, device_id):
@@ -104,18 +103,24 @@ def send_gps_data(line, device_client, device_id):
 # --- Connect all devices ---
 print("Connecting devices...")
 for device in DEVICES:
-    device["serial"] = counterfit_shims_serial.Serial(device["port"])
-    device["client"] = IoTHubDeviceClient.create_from_connection_string(device["connection_string"])
-    device["client"].connect()
-    print(f"Connected: {device['id']} on {device['port']}")
-
-print("All devices connected!")
+    try:
+        device["serial"] = counterfit_shims_serial.Serial(device["port"])
+        device["client"] = IoTHubDeviceClient.create_from_connection_string(device["connection_string"])
+        device["client"].connect()
+        device["client"].on_method_request_received = make_method_handler(device["client"], device["id"])
+        device["connected"] = True  # ← đánh dấu connected
+        print(f"Connected: {device['id']} on {device['port']}")
+    except Exception as e:
+        device["connected"] = False  # ← đánh dấu failed
+        print(f"Failed to connect {device['id']}: {e}")
 
 # --- Main loop ---
 while True:
     for device in DEVICES:
+        if not device["connected"]:  # ← bỏ qua device lỗi
+            continue
         line = device["serial"].readline().decode('utf-8')
         while len(line) > 0:
             send_gps_data(line, device["client"], device["id"])
             line = device["serial"].readline().decode('utf-8')
-    time.sleep(60)
+    time.sleep(30)
