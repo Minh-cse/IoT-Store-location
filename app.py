@@ -26,6 +26,19 @@ DEVICES = [
 GPS_TOLERANCE = 0.00009
 tz_vn = timezone(timedelta(hours=7))
 
+def method_handler(method_request):
+    print(f'Direct method received: {method_request.name}')
+    
+    if method_request.name == 'arrived':
+        print('Truck arrived!')
+    elif method_request.name == 'in_transit':
+        print('Truck is in transit')
+    
+    response = MethodResponse.create_from_method_request(method_request, status=200)
+    device_client.send_method_response(response)
+
+device_client.on_method_request_received = method_handler
+
 # --- Load warehouses ---
 def load_warehouse(filepath):
     warehouse = []
